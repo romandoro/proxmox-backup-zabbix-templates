@@ -1,0 +1,162 @@
+zabbix_export:
+  version: '7.4'
+  template_groups:
+    - uuid: 7df96b18c230490a9a0a9e2307226338
+      name: Templates
+    - uuid: 088e93fa3d084d6498766917422a75bd
+      name: Templates/Proxmox
+  templates:
+    - uuid: eac47ab40a644dee8f0c1d8b81af8001
+      template: 'Proxmox Backup Monitoring'
+      name: 'Proxmox Backup Monitoring'
+      groups:
+        - name: Templates
+        - name: Templates/Proxmox
+      discovery_rules:
+        - uuid: 297ae14846b449e1a5ed8b16dc5936ab
+          name: 'Backup jobs discovery'
+          type: ZABBIX_ACTIVE
+          key: proxmox.backup.discovery
+          delay: 1h
+          lifetime: 8d
+          item_prototypes:
+            - uuid: 39b97512c2b14124bb4e265f8b8fa0d0
+              name: 'VM {#VMID}: AWS upload status'
+              type: DEPENDENT
+              key: 'proxmox.backup.aws_upload[{#VMID}]'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.aws_upload
+              master_item:
+                key: 'proxmox.backup.get[{#VMID}]'
+              tags:
+                - tag: component
+                  value: backup
+            - uuid: d4bb3e53540048deaf8be07fd4ddfe33
+              name: 'VM {#VMID}: backup duration'
+              type: DEPENDENT
+              key: 'proxmox.backup.duration[{#VMID}]'
+              units: s
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.duration
+              master_item:
+                key: 'proxmox.backup.get[{#VMID}]'
+              tags:
+                - tag: component
+                  value: backup
+            - uuid: 1cedd15f1c144e3792797a642949da9e
+              name: 'VM {#VMID}: backup last run'
+              type: DEPENDENT
+              key: 'proxmox.backup.endtime[{#VMID}]'
+              units: unixtime
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.endtime
+              master_item:
+                key: 'proxmox.backup.get[{#VMID}]'
+              tags:
+                - tag: component
+                  value: backup
+              trigger_prototypes:
+                - uuid: 98f9c8545044421b99e74d2fe6f23917
+                  expression: 'last(/Proxmox Backup Monitoring/proxmox.backup.endtime[{#VMID}])<(now()-691200) and last(/Proxmox Backup Monitoring/proxmox.backup.endtime[{#VMID}])>0'
+                  name: 'VM {#VMID} on {HOST.NAME}: no backup in 8 days'
+                  opdata: 'Last backup: {ITEM.LASTVALUE}'
+                  priority: HIGH
+                  tags:
+                    - tag: component
+                      value: backup
+                    - tag: scope
+                      value: availability
+            - uuid: 1459e45a10424415a2e3841d2b8d27ec
+              name: 'VM {#VMID}: backup data'
+              type: ZABBIX_ACTIVE
+              key: 'proxmox.backup.get[{#VMID}]'
+              delay: 30m
+              value_type: TEXT
+            - uuid: 3617ab2830c746228bd0cfb4b3aead04
+              name: 'VM {#VMID}: backup status'
+              type: DEPENDENT
+              key: 'proxmox.backup.status[{#VMID}]'
+              valuemap:
+                name: 'Proxmox Backup Status'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.status
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 2h
+              master_item:
+                key: 'proxmox.backup.get[{#VMID}]'
+              tags:
+                - tag: component
+                  value: backup
+              trigger_prototypes:
+                - uuid: e7658cf046aa4c60bb86fddd1f27a54e
+                  expression: 'last(/Proxmox Backup Monitoring/proxmox.backup.status[{#VMID}])=0'
+                  recovery_mode: RECOVERY_EXPRESSION
+                  recovery_expression: 'last(/Proxmox Backup Monitoring/proxmox.backup.status[{#VMID}])=1'
+                  name: 'VM {#VMID} on {HOST.NAME}: backup FAILED'
+                  opdata: 'Storage: {ITEM.LASTVALUE2}'
+                  priority: HIGH
+                  tags:
+                    - tag: component
+                      value: backup
+                    - tag: scope
+                      value: availability
+            - uuid: 9a08ab55c94a47818d4520f2fd9b71cd
+              name: 'VM {#VMID}: backup type'
+              type: DEPENDENT
+              key: 'proxmox.backup.type[{#VMID}]'
+              valuemap:
+                name: 'Proxmox Backup Type'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.type
+              master_item:
+                key: 'proxmox.backup.get[{#VMID}]'
+              tags:
+                - tag: component
+                  value: backup
+          trigger_prototypes:
+            - uuid: 4ff71eb23a7d4798a7a0240be1d95d7a
+              expression: 'last(/Proxmox Backup Monitoring/proxmox.backup.status[{#VMID}])=1 and last(/Proxmox Backup Monitoring/proxmox.backup.type[{#VMID}])=2 and last(/Proxmox Backup Monitoring/proxmox.backup.aws_upload[{#VMID}])=0'
+              name: 'VM {#VMID} on {HOST.NAME}: AWS upload not confirmed'
+              priority: AVERAGE
+              tags:
+                - tag: component
+                  value: backup
+                - tag: scope
+                  value: availability
+      tags:
+        - tag: component
+          value: backup
+      valuemaps:
+        - uuid: d01776abd625465e9cd6e7cd3cddac71
+          name: 'Proxmox Backup Status'
+          mappings:
+            - value: '0'
+              newvalue: FAILED
+            - value: '1'
+              newvalue: OK
+            - value: '2'
+              newvalue: RUNNING
+            - value: '3'
+              newvalue: 'NO BACKUP'
+        - uuid: 3718878d0a1748fe92f9039c78bde38c
+          name: 'Proxmox Backup Type'
+          mappings:
+            - value: '0'
+              newvalue: unknown
+            - value: '1'
+              newvalue: pbs
+            - value: '2'
+              newvalue: aws
+            - value: '3'
+              newvalue: local
